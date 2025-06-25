@@ -61,7 +61,7 @@ function Remove-ZoneIdentifier {
 				}
 				Write-Verbose "Stripping Zone.Identifier from $displayName"
 				[System.IO.File]::Delete($File.FullName + ":Zone.Identifier")
-				if (-not $SupressSuccess) { Write-Host -Color Green "Stripped Zone.Identifier from $displayName" } # we are sticking to write-host, but we offer an option to turn it off
+				if (-not $SupressSuccess) { Write-Host -ForegroundColor Green "Stripped Zone.Identifier from $displayName" } # we are sticking to write-host, but we offer an option to turn it off
 			}
 			catch {
 				Write-Error -Message "Failed to strip Zone.Identifier from ${displayName}: $($_.Exception.Message)";
