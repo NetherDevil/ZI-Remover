@@ -25,12 +25,28 @@
     Internal use only. Indicates that the provided Path is already
     fully qualified. Do not use this parameter manually.
 
-    .PARAMETER SupressSuccess
+    .PARAMETER SuppressSuccess
     When specified, suppresses the green success messages for stripped files.
     Error and warning messages will still be displayed.
 
+   .PARAMETER CommonParameters
+   This cmdlet supports the common parameters: -Debug, -ErrorAction, 
+   -ErrorVariable, -InformationAction, -InformationVariable, -OutVariable, 
+   -OutBuffer, -PipelineVariable, -Verbose, -WarningAction, and 
+   -WarningVariable. For more information, see about_CommonParameters 
+   (https://go.microsoft.com/fwlink/?LinkID=113216).
+
     .EXAMPLE
-    Remove-ZoneIdentifier -Path 'C:\MyDownloads'
+    Remove-ZoneIdentifier -Path 'C:\Directory'
+
+    .EXAMPLE
+    Remove-ZoneIdentifier -Path 'C:\Directory' -WhatIf
+
+    .EXAMPLE
+    Remove-ZoneIdentifier -Path 'C:\Directory' -NoRecurse
+
+    .EXAMPLE
+    Remove-ZoneIdentifier -Path 'C:\ReadOnlyFile.exe' -Force
 
     .NOTES
     Author: NetherDevil
@@ -39,13 +55,23 @@
 #>
 function Remove-ZoneIdentifier {
 	[CmdletBinding(SupportsShouldProcess, ConfirmImpact = "Medium")]
-	param ([Parameter(Mandatory=$true, Position=0)][string] $Path, [switch] $Force, [switch] $NoRecurse, [switch] $FullyQualifiedPath, [switch] $SupressSuccess);
+	param ([Parameter(Mandatory=$true, Position=0)][string] $Path, [switch] $Force, [switch] $NoRecurse, [switch] $FullyQualifiedPath, [switch] $SuppressSuccess);
 	function InternalGetDisplayName {
 		param([string] $FullName);
 		if ($FullName.Length -gt 80) {
 			return "..." + $FullName.SubString($FullName.Length - 77);
 		}
 		return $FullName;
+	}
+	function InternalGetErrorDetail {
+		param ([System.Exception] $Exception);
+		if ($Exception -is [System.Management.Automation.MethodException]) {
+			try {
+				return InternalGetErrorDetail -Exception:$Exception.InnerException; # MethodException is often a wrapper; we need to dive deeper.
+			}
+			catch { } # but if it fails, return the message directly (below)
+		}
+		return $Exception.Message;
 	}
 	function InternalHandleFile {
 		param([System.IO.FileSystemInfo] $File, [bool] $Force);
@@ -61,10 +87,11 @@ function Remove-ZoneIdentifier {
 				}
 				Write-Verbose "Stripping Zone.Identifier from $displayName"
 				[System.IO.File]::Delete($File.FullName + ":Zone.Identifier")
-				if (-not $SupressSuccess) { Write-Host -ForegroundColor Green "Stripped Zone.Identifier from $displayName" } # we are sticking to write-host, but we offer an option to turn it off
+				if (-not $SuppressSuccess) { Write-Host -ForegroundColor Green "Stripped Zone.Identifier from $displayName" } # we are sticking to write-host, as we want a colored output. but we offer an option to turn it off
 			}
 			catch {
-				Write-Error -Message "Failed to strip Zone.Identifier from ${displayName}: $($_.Exception.Message)";
+				$detail = InternalGetErrorDetail -Exception:$_.Exception
+				Write-Error -Message "Failed to strip Zone.Identifier from ${displayName}: $detail";
 			}
 			finally {
 				if ($attribOverride) {
@@ -73,7 +100,8 @@ function Remove-ZoneIdentifier {
 						$File.Attributes = $attrib;
 					}
 					catch {
-						Write-Warning -Message "Failed to revert attributes ($attrib) for ${displayName}: $($_.Exception.Message)";
+						$detail = InternalGetErrorDetail -Exception:$_.Exception
+						Write-Warning -Message "Failed to revert attributes ($attrib) for ${displayName}: $detail";
 					}
 				}
 			}
@@ -88,14 +116,19 @@ function Remove-ZoneIdentifier {
 		return;
 	}
 	$pathInfo = [System.IO.DirectoryInfo]::new($Path);
-	if (-not $pathInfo.Exists) { return; }
+	if (-not $pathInfo.Exists) { 
+		$displayName = InternalGetDisplayName -FullName:$Path;
+		Write-Error -Message "Could not find ${displayName}.";
+		return;
+	}
 	$items = $null;
 	try {
 		$items = $pathInfo.GetFileSystemInfos();
 	}
 	catch {
 		$displayName = InternalGetDisplayName -FullName:$Path;
-		Write-Warning -Message "Could not list files in ${displayName}: $($_.Exception.Message)";
+		$detail = InternalGetErrorDetail -Exception:$_.Exception
+		Write-Warning -Message "Could not list files in ${displayName}: $detail";
 		return;
 	}
 	foreach ($item in $items) { # items are non-null here
